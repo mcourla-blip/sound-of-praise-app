@@ -241,7 +241,7 @@ app.patch("/api/admin/settings", auth, requireAdmin, (req, res) => {
 // -------------------------------
 app.get("/api/admin/users", auth, requireAdmin, (req, res) => res.json({ users: ADMIN_USERS }));
 
-app.post("/api/admin/users", auth, requireAdmin, (req, res) => {
+app.all("/api/admin/users", auth, requireAdmin, (req, res) => {
   const { email, role } = req.body || {};
   if (!email) return res.status(400).json({ error: "email required" });
 
