@@ -1,4 +1,5 @@
-const API = "http://192.168.0.38:4242/api";
+const API = (import.meta.env.VITE_API_BASE || "https://sound-of-praise-backend.onrender.com") + "/api";
+
 
 export function setToken(t){ localStorage.setItem("sop_token", t || ""); }
 export function getToken(){ return localStorage.getItem("sop_token") || ""; }
