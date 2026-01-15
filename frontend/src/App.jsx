@@ -594,7 +594,7 @@ function AdminPage() {
   return (
     <div style={styles.container}>
       <Card>
-        <h2 style={styles.h2}>Gestion (Admins)</h2>
+        <h2 style={styles.h2}>Gestion (Administrateurs)</h2>
         <div style={styles.row}>
           <span style={styles.badge}>Admins: {stats?.totalAdmins ?? "—"}</span>
           <span style={styles.badge}>Membres: {stats?.totalMembers ?? "—"}</span>
