@@ -340,6 +340,12 @@ app.post("/api/member/checkout", auth, async (req, res) => {
     res.status(500).json({ error: err.message || "Stripe error" });
   }
 });
+// -------------------------------
+// EVENTS (public) — pour l'UI
+// -------------------------------
+app.get("/api/events", (req, res) => {
+  res.json({ events: ADMIN_EVENTS });
+});
 
 // -------------------------------
 // Anti-404 : fallback “safe” pour endpoints futurs
