@@ -294,6 +294,31 @@ app.post("/api/member/checkout", auth, async (req, res) => {
     return res.status(500).json({ error: err.message || "Stripe error" });
   }
 });
+// -------------------------------
+// ADMIN — MESSAGES (contact) — placeholders
+// -------------------------------
+let ADMIN_MESSAGES = []; // { id, name, email, subject, message, createdAt }
+
+app.get("/api/admin/messages", auth, requireAdmin, (req, res) => {
+  res.json({ messages: ADMIN_MESSAGES });
+});
+
+app.post("/api/public/contact", (req, res) => {
+  const { name, email, subject, message } = req.body || {};
+  if (!email || !message) return res.status(400).json({ error: "email and message required" });
+
+  const m = {
+    id: uid("msg"),
+    name: name ? String(name) : "",
+    email: String(email).toLowerCase().trim(),
+    subject: subject ? String(subject) : "",
+    message: String(message),
+    createdAt: new Date().toISOString(),
+  };
+
+  ADMIN_MESSAGES.unshift(m);
+  res.json({ ok: true });
+});
 
 // -------------------------------
 // START
