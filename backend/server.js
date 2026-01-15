@@ -71,6 +71,13 @@ app.get("/api/health", (req, res) => {
 });
 
 // -------------------------------
+// ME — infos utilisateur connecté
+// -------------------------------
+app.get("/api/me", auth, (req, res) => {
+  res.json({ user: req.user });
+});
+ 
+// -------------------------------
 // AUTH — LOGIN TEST (TEMPORAIRE)
 // admin si email contient "admin" OU finit par "@sop.local"
 // ex: admin@sop.local
