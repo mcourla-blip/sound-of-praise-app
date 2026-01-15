@@ -30,6 +30,9 @@ console.log("✅ APP_PUBLIC_URL =", APP_PUBLIC_URL);
 console.log("✅ STRIPE key present =", !!STRIPE_SECRET_KEY);
 console.log("✅ BREVO key present =", !!BREVO_API_KEY);
 console.log("✅ CRON_SECRET present =", !!CRON_SECRET);
+console.log("CRON_SECRET ENV =", CRON_SECRET);
+console.log("CRON_SECRET QUERY =", req.query.secret);
+
 
 // -------------------------------
 // INIT
