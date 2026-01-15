@@ -1,6 +1,6 @@
 // ===============================
-// Sound Of Praise — Backend V1.1 (Render-ready)
-// Node 18+ / 20+ / 24+ (ESM)
+// Sound Of Praise — Backend V1.1.1 (Render-ready)
+// Node ESM
 // ===============================
 
 import "dotenv/config";
@@ -10,14 +10,13 @@ import Stripe from "stripe";
 import jwt from "jsonwebtoken";
 
 // -------------------------------
-// CONFIG
+// ENV
 // -------------------------------
-const PORT = process.env.PORT || 4242; // Render fournit souvent PORT
+const PORT = process.env.PORT || 4242;
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret_change_me";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 
-// Logs utiles
 console.log("✅ FRONTEND_URL =", FRONTEND_URL);
 console.log("✅ STRIPE_SECRET_KEY present =", !!STRIPE_SECRET_KEY);
 
@@ -27,23 +26,33 @@ console.log("✅ STRIPE_SECRET_KEY present =", !!STRIPE_SECRET_KEY);
 const app = express();
 const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
 
-// CORS
 app.use(
   cors({
     origin: FRONTEND_URL,
     credentials: true,
   })
 );
-
 app.use(express.json());
 
 // -------------------------------
-// SETTINGS V1.1 (en mémoire)
+// SETTINGS (in-memory)
 // -------------------------------
-let SETTINGS = { membershipFeeCents: 2000 }; // 20€ par défaut
+let SETTINGS = { membershipFeeCents: 2000 }; // 20€
 
 // -------------------------------
-// AUTH MIDDLEWARE
+// In-memory admin datasets (placeholders)
+// -------------------------------
+let ADMIN_USERS = [{ id: "admin_1", email: "admin@sop.local", role: "admin" }];
+let ADMIN_MEMBERS = []; // { id, name, email }
+let ADMIN_EVENTS = []; // { id, type, title, date, note }
+
+// Helper id
+function uid(prefix = "id") {
+  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now()}`;
+}
+
+// -------------------------------
+// AUTH
 // -------------------------------
 function auth(req, res, next) {
   const header = req.headers.authorization;
@@ -64,41 +73,31 @@ function requireAdmin(req, res, next) {
 }
 
 // -------------------------------
-// HEALTH
+// ROUTES
 // -------------------------------
-app.get("/api/health", (req, res) => {
-  res.json({ ok: true });
-});
+app.get("/api/health", (req, res) => res.json({ ok: true }));
 
-// -------------------------------
-// ME — infos utilisateur connecté
-// -------------------------------
-app.get("/api/me", auth, (req, res) => {
-  res.json({ user: req.user });
-});
- 
+app.get("/api/me", auth, (req, res) => res.json({ user: req.user }));
+
 // -------------------------------
 // AUTH — LOGIN TEST (TEMPORAIRE)
 // admin si email contient "admin" OU finit par "@sop.local"
-// ex: admin@sop.local
 // -------------------------------
 app.post("/api/auth/login", (req, res) => {
   const { email } = req.body || {};
-
-  if (!email || typeof email !== "string") {
-    return res.status(400).json({ error: "Email required" });
-  }
+  if (!email || typeof email !== "string") return res.status(400).json({ error: "Email required" });
 
   const e = email.toLowerCase().trim();
   const isAdmin = e.includes("admin") || e.endsWith("@sop.local");
 
-  const user = {
-    id: isAdmin ? "admin_1" : "user_1",
-    email: e,
-    role: isAdmin ? "admin" : "member",
-  };
-
+  const user = { id: isAdmin ? "admin_1" : "user_1", email: e, role: isAdmin ? "admin" : "member" };
   const token = jwt.sign(user, JWT_SECRET, { expiresIn: "7d" });
+
+  // garde ADMIN_USERS à jour (démo)
+  if (isAdmin && !ADMIN_USERS.find((u) => u.email === e)) {
+    ADMIN_USERS.unshift({ id: uid("u"), email: e, role: "admin" });
+  }
+
   res.json({ token, user });
 });
 
@@ -111,7 +110,6 @@ app.get("/api/admin/settings", auth, requireAdmin, (req, res) => {
 
 app.patch("/api/admin/settings", auth, requireAdmin, (req, res) => {
   const { membershipFeeCents } = req.body || {};
-
   if (membershipFeeCents === undefined) {
     return res.status(400).json({ error: "membershipFeeCents is required" });
   }
@@ -126,8 +124,133 @@ app.patch("/api/admin/settings", auth, requireAdmin, (req, res) => {
 });
 
 // -------------------------------
-// STRIPE CHECKOUT — COTISATION (montant dynamique)
-// POST /api/member/checkout
+// ADMIN — USERS
+// -------------------------------
+app.get("/api/admin/users", auth, requireAdmin, (req, res) => {
+  res.json({ users: ADMIN_USERS });
+});
+
+app.post("/api/admin/users", auth, requireAdmin, (req, res) => {
+  const { email, role } = req.body || {};
+  if (!email) return res.status(400).json({ error: "email required" });
+
+  const u = {
+    id: uid("u"),
+    email: String(email).toLowerCase().trim(),
+    role: role === "admin" ? "admin" : "member",
+  };
+  ADMIN_USERS.unshift(u);
+  res.json({ ok: true, user: u });
+});
+
+app.patch("/api/admin/users/:id", auth, requireAdmin, (req, res) => {
+  const idx = ADMIN_USERS.findIndex((u) => u.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: "User not found" });
+
+  const { email, role } = req.body || {};
+  ADMIN_USERS[idx] = {
+    ...ADMIN_USERS[idx],
+    ...(email !== undefined ? { email: String(email).toLowerCase().trim() } : {}),
+    ...(role !== undefined ? { role: role === "admin" ? "admin" : "member" } : {}),
+  };
+
+  res.json({ ok: true, user: ADMIN_USERS[idx] });
+});
+
+app.delete("/api/admin/users/:id", auth, requireAdmin, (req, res) => {
+  const before = ADMIN_USERS.length;
+  ADMIN_USERS = ADMIN_USERS.filter((u) => u.id !== req.params.id);
+  res.json({ ok: true, removed: before !== ADMIN_USERS.length });
+});
+
+// -------------------------------
+// ADMIN — MEMBERS (choristes / contacts)
+// -------------------------------
+app.get("/api/admin/members", auth, requireAdmin, (req, res) => {
+  res.json({ members: ADMIN_MEMBERS });
+});
+
+app.post("/api/admin/members", auth, requireAdmin, (req, res) => {
+  const { name, email } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name required" });
+
+  const m = { id: uid("m"), name: String(name), email: email ? String(email) : "" };
+  ADMIN_MEMBERS.unshift(m);
+  res.json({ ok: true, member: m });
+});
+
+app.delete("/api/admin/members/:id", auth, requireAdmin, (req, res) => {
+  const before = ADMIN_MEMBERS.length;
+  ADMIN_MEMBERS = ADMIN_MEMBERS.filter((m) => m.id !== req.params.id);
+  res.json({ ok: true, removed: before !== ADMIN_MEMBERS.length });
+});
+
+// -------------------------------
+// ADMIN — EVENTS (répétitions / concerts)
+// -------------------------------
+app.get("/api/admin/events", auth, requireAdmin, (req, res) => {
+  res.json({ events: ADMIN_EVENTS });
+});
+
+app.post("/api/admin/events", auth, requireAdmin, (req, res) => {
+  const { type, title, date, note } = req.body || {};
+  if (!type || !date) return res.status(400).json({ error: "type and date required" });
+
+  const ev = {
+    id: uid("e"),
+    type: type === "concert" ? "concert" : "repetition",
+    title: title || (type === "concert" ? "Concert" : "Répétition"),
+    date,
+    note: note || "",
+  };
+
+  ADMIN_EVENTS.unshift(ev);
+  res.json({ ok: true, event: ev });
+});
+
+app.patch("/api/admin/events/:id", auth, requireAdmin, (req, res) => {
+  const idx = ADMIN_EVENTS.findIndex((e) => e.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: "Event not found" });
+
+  const { title, date, note, type } = req.body || {};
+  ADMIN_EVENTS[idx] = {
+    ...ADMIN_EVENTS[idx],
+    ...(title !== undefined ? { title } : {}),
+    ...(date !== undefined ? { date } : {}),
+    ...(note !== undefined ? { note } : {}),
+    ...(type !== undefined ? { type: type === "concert" ? "concert" : "repetition" } : {}),
+  };
+
+  res.json({ ok: true, event: ADMIN_EVENTS[idx] });
+});
+
+app.delete("/api/admin/events/:id", auth, requireAdmin, (req, res) => {
+  const before = ADMIN_EVENTS.length;
+  ADMIN_EVENTS = ADMIN_EVENTS.filter((e) => e.id !== req.params.id);
+  res.json({ ok: true, removed: before !== ADMIN_EVENTS.length });
+});
+
+// -------------------------------
+// ADMIN — STATS + placeholders
+// -------------------------------
+app.get("/api/admin/stats", auth, requireAdmin, (req, res) => {
+  res.json({
+    stats: {
+      membersCount: ADMIN_MEMBERS.length,
+      usersCount: ADMIN_USERS.length,
+      eventsCount: ADMIN_EVENTS.length,
+      repeatsCount: ADMIN_EVENTS.filter((e) => e.type === "repetition").length,
+      concertsCount: ADMIN_EVENTS.filter((e) => e.type === "concert").length,
+    },
+  });
+});
+
+app.get("/api/admin/choristes", auth, requireAdmin, (req, res) => {
+  res.json({ choristes: [] });
+});
+
+// -------------------------------
+// MEMBER — STRIPE CHECKOUT
 // -------------------------------
 app.post("/api/member/checkout", auth, async (req, res) => {
   try {
@@ -170,102 +293,6 @@ app.post("/api/member/checkout", auth, async (req, res) => {
     console.error("❌ Stripe checkout error:", err);
     return res.status(500).json({ error: err.message || "Stripe error" });
   }
-});
-
-// -------------------------------
-// ADMIN DATA (V1.1+) — placeholders en mémoire
-// -------------------------------
-let ADMIN_MEMBERS = []; // { id, name, email }
-let ADMIN_EVENTS = [];  // { id, type: "repetition"|"concert", title, date, note }
-
-// Petit helper id
-function uid(prefix = "id") {
-  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now()}`;
-}
-
-// -------------------------------
-// ADMIN — Membres
-// -------------------------------
-app.get("/api/admin/members", auth, requireAdmin, (req, res) => {
-  res.json({ members: ADMIN_MEMBERS });
-});
-
-app.post("/api/admin/members", auth, requireAdmin, (req, res) => {
-  const { name, email } = req.body || {};
-  if (!name) return res.status(400).json({ error: "name required" });
-  const m = { id: uid("m"), name, email: email || "" };
-  ADMIN_MEMBERS.unshift(m);
-  res.json({ ok: true, member: m });
-});
-
-app.delete("/api/admin/members/:id", auth, requireAdmin, (req, res) => {
-  const before = ADMIN_MEMBERS.length;
-  ADMIN_MEMBERS = ADMIN_MEMBERS.filter((m) => m.id !== req.params.id);
-  res.json({ ok: true, removed: before !== ADMIN_MEMBERS.length });
-});
-
-// -------------------------------
-// ADMIN — Événements (répétitions / concerts)
-// -------------------------------
-app.get("/api/admin/events", auth, requireAdmin, (req, res) => {
-  res.json({ events: ADMIN_EVENTS });
-});
-
-app.post("/api/admin/events", auth, requireAdmin, (req, res) => {
-  const { type, title, date, note } = req.body || {};
-  if (!type || !date) return res.status(400).json({ error: "type and date required" });
-
-  const ev = {
-    id: uid("e"),
-    type: type === "concert" ? "concert" : "repetition",
-    title: title || (type === "concert" ? "Concert" : "Répétition"),
-    date,
-    note: note || "",
-  };
-
-  ADMIN_EVENTS.unshift(ev);
-  res.json({ ok: true, event: ev });
-});
-
-app.patch("/api/admin/events/:id", auth, requireAdmin, (req, res) => {
-  const { title, date, note, type } = req.body || {};
-  const idx = ADMIN_EVENTS.findIndex((e) => e.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: "Event not found" });
-
-  ADMIN_EVENTS[idx] = {
-    ...ADMIN_EVENTS[idx],
-    ...(title !== undefined ? { title } : {}),
-    ...(date !== undefined ? { date } : {}),
-    ...(note !== undefined ? { note } : {}),
-    ...(type !== undefined ? { type: type === "concert" ? "concert" : "repetition" } : {}),
-  };
-
-  res.json({ ok: true, event: ADMIN_EVENTS[idx] });
-});
-
-app.delete("/api/admin/events/:id", auth, requireAdmin, (req, res) => {
-  const before = ADMIN_EVENTS.length;
-  ADMIN_EVENTS = ADMIN_EVENTS.filter((e) => e.id !== req.params.id);
-  res.json({ ok: true, removed: before !== ADMIN_EVENTS.length });
-});
-
-// -------------------------------
-// ADMIN — “Stats / choristes” (pour éviter les 404 si l’UI appelle ça)
-// -------------------------------
-app.get("/api/admin/stats", auth, requireAdmin, (req, res) => {
-  res.json({
-    stats: {
-      membersCount: ADMIN_MEMBERS.length,
-      eventsCount: ADMIN_EVENTS.length,
-      repeatsCount: ADMIN_EVENTS.filter((e) => e.type === "repetition").length,
-      concertsCount: ADMIN_EVENTS.filter((e) => e.type === "concert").length,
-    },
-  });
-});
-
-app.get("/api/admin/choristes", auth, requireAdmin, (req, res) => {
-  // Si ton UI a un onglet “Choristes”, on renvoie une liste vide pour l’instant
-  res.json({ choristes: [] });
 });
 
 // -------------------------------
