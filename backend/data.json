@@ -1,0 +1,31 @@
+{
+  "users": [
+    {
+      "id": "usr_055e6f55f85d19bbe2cdf4e",
+      "name": "Admin",
+      "email": "admin@sop.local",
+      "passwordHash": "$2a$10$MnvsNovEZnBjATO3UqQAmuNUQs6kU14fuIN.EH.Sha5Y4gTlMO5ZC",
+      "role": "admin",
+      "createdAt": "2026-01-14T20:22:50.565Z"
+    },
+    {
+      "id": "usr_47c20983253be819bbe6f8687",
+      "name": "Michael",
+      "email": "m.courla@gmail.com",
+      "passwordHash": "$2a$10$oTE8QBzFJywRDQA5.hNap.EtCkbhoF5IZTGjB5X/AcB9PvklfPcje",
+      "role": "member",
+      "createdAt": "2026-01-14T21:35:38.719Z"
+    }
+  ],
+  "events": [],
+  "attendance": [],
+  "payments": [],
+  "messages": [],
+  "publicContent": {
+    "about": "Sound Of Praise — Gospel, culture et inclusion.",
+    "portfolioPdfUrl": ""
+  },
+  "settings": {
+    "membershipFeeCents": 2000
+  }
+}

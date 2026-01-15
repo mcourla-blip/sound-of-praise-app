@@ -1,0 +1,948 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { api, getToken, logout, setToken } from "./api.js";
+
+/**
+ * Sound Of Praise — App.jsx V1.1
+ * ✅ Admin: modifier/supprimer événements
+ * ✅ V1.1: Cotisation configurable (Admin) + affichée (Membre)
+ * ✅ V1.1: Paiement (Stripe Checkout) via api.createCheckoutSession()
+ *
+ * Requis dans frontend/src/api.js :
+ *  - adminUpdateEvent(id,payload) / adminDeleteEvent(id)
+ *  - adminGetSettings() / adminUpdateSettings(payload)
+ *  - createCheckoutSession()
+ */
+
+function getHashPath() {
+  const h = window.location.hash || "#/";
+  return h.replace(/^#/, "");
+}
+function setHashPath(p) {
+  window.location.hash = `#${p}`;
+}
+
+function Card({ children, style }) {
+  return <div style={{ ...styles.card, ...(style || {}) }}>{children}</div>;
+}
+
+function Nav({ user }) {
+  return (
+    <div style={styles.nav}>
+      <div style={styles.brand} onClick={() => setHashPath("/")}>
+        <span style={{ fontWeight: 900 }}>Sound Of Praise</span>
+        <span style={styles.badge}>V1.1</span>
+      </div>
+
+      <div style={styles.row}>
+        <button style={styles.btnNav} onClick={() => setHashPath("/")}>Invité</button>
+        <button style={styles.btnNav} onClick={() => setHashPath("/concerts")}>Concerts</button>
+        <button style={styles.btnNav} onClick={() => setHashPath("/portfolio")}>Portfolio</button>
+        <button style={{ ...styles.btn, ...styles.btnCta }} onClick={() => setHashPath("/contact")}>Contact</button>
+
+        {!user && (
+          <button style={{ ...styles.btnNav, ...styles.btnPrimary }} onClick={() => setHashPath("/login")}>
+            Connexion
+          </button>
+        )}
+
+        {user && (
+          <>
+            <button style={styles.btnNav} onClick={() => setHashPath("/member")}>Espace membre</button>
+            {user.role === "admin" && <button style={styles.btnNav} onClick={() => setHashPath("/admin")}>Gestion</button>}
+            <button
+              style={styles.btnNav}
+              onClick={() => {
+                logout();
+                window.location.hash = "#/";
+                window.location.reload();
+              }}
+            >
+              Déconnexion
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PublicHome() {
+  const [content, setContent] = useState({ about: "", portfolioPdfUrl: "" });
+  const [concerts, setConcerts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const c = await api.publicContent().catch(() => ({}));
+        const list = await api.publicConcerts().catch(() => []);
+        if (!alive) return;
+
+        setContent({
+          about: typeof c?.about === "string" ? c.about : "Sound Of Praise — Gospel, culture & inclusion.",
+          portfolioPdfUrl: typeof c?.portfolioPdfUrl === "string" ? c.portfolioPdfUrl : "",
+        });
+        setConcerts(Array.isArray(list) ? list : []);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  return (
+    <div style={styles.container}>
+      <Card>
+        <h2 style={styles.h2}>Sound Of Praise</h2>
+        <p style={styles.small}>{content.about || "…"}</p>
+        <div style={styles.row}>
+          <button style={{ ...styles.btn, ...styles.btnTurq }} onClick={() => setHashPath("/concerts")}>Voir les concerts</button>
+          <button style={{ ...styles.btn, ...styles.btnPrimary }} onClick={() => setHashPath("/portfolio")}>Portfolio</button>
+          <button style={{ ...styles.btn, ...styles.btnCta }} onClick={() => setHashPath("/contact")}>Contacter</button>
+        </div>
+      </Card>
+
+      <div style={styles.grid2}>
+        <Card>
+          <h3 style={styles.h3}>Dates de concerts (public)</h3>
+          {loading ? <p style={styles.small}>Chargement…</p> : null}
+          {!loading && concerts.length === 0 ? <p style={styles.small}>Aucune date publiée.</p> : null}
+          <div style={styles.grid}>
+            {(Array.isArray(concerts) ? concerts : []).slice(0, 5).map((c) => (
+              <Card key={c.id}>
+                <div style={{ fontWeight: 800 }}>{c.title || "Concert"}</div>
+                <div style={styles.small}>
+                  {c.startAt ? new Date(c.startAt).toLocaleString() : "Date à définir"} • {c.place || "—"}
+                </div>
+                {c.notes ? <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>{c.notes}</div> : null}
+              </Card>
+            ))}
+          </div>
+        </Card>
+
+        <Card>
+          <h3 style={styles.h3}>Accès rapide</h3>
+          <p style={styles.small}>
+            • Invités : concerts, portfolio, contact<br />
+            • Membres : calendrier + présences + cotisation<br />
+            • Admins : gestion membres, événements, cotisation
+          </p>
+          <hr style={styles.hr} />
+          <div style={styles.row}>
+            <button style={styles.btn} onClick={() => setHashPath("/login")}>Se connecter</button>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function ConcertsPage() {
+  const [concerts, setConcerts] = useState([]);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    api.publicConcerts()
+      .then((data) => setConcerts(Array.isArray(data) ? data : []))
+      .catch((e) => setErr(e?.message || "Erreur"));
+  }, []);
+
+  return (
+    <div style={styles.container}>
+      <Card>
+        <h2 style={styles.h2}>Concerts (public)</h2>
+        {err && <div style={styles.err}>Erreur: {err}</div>}
+        {concerts.length === 0 && !err ? <p style={styles.small}>Aucune date publiée.</p> : null}
+        <div style={styles.grid}>
+          {(Array.isArray(concerts) ? concerts : []).map((c) => (
+            <Card key={c.id}>
+              <div style={{ fontWeight: 900 }}>{c.title || "Concert"}</div>
+              <div style={styles.small}>
+                {c.startAt ? new Date(c.startAt).toLocaleString() : "Date à définir"} • {c.place || "—"}
+              </div>
+              {c.notes ? <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>{c.notes}</div> : null}
+            </Card>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function PortfolioPage() {
+  const [content, setContent] = useState({ about: "", portfolioPdfUrl: "" });
+
+  useEffect(() => {
+    api.publicContent()
+      .then((c) => {
+        setContent({
+          about: typeof c?.about === "string" ? c.about : "",
+          portfolioPdfUrl: typeof c?.portfolioPdfUrl === "string" ? c.portfolioPdfUrl : "",
+        });
+      })
+      .catch(() => {});
+  }, []);
+
+  return (
+    <div style={styles.container}>
+      <Card>
+        <h2 style={styles.h2}>Portfolio</h2>
+        <p style={styles.small}>PDF de présentation du groupe.</p>
+        {content.portfolioPdfUrl ? (
+          <a style={{ ...styles.btnLink, ...styles.btnCta }} href={content.portfolioPdfUrl} target="_blank" rel="noreferrer">
+            Ouvrir le PDF
+          </a>
+        ) : (
+          <p style={styles.small}>Pas encore défini. (Admin → Contenu public)</p>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function ContactPage() {
+  const [form, setForm] = useState({ name: "", email: "", subject: "", message: "" });
+  const [status, setStatus] = useState({ ok: false, err: "" });
+
+  async function send() {
+    setStatus({ ok: false, err: "" });
+    try {
+      await api.publicContact(form);
+      setStatus({ ok: true, err: "" });
+      setForm({ name: "", email: "", subject: "", message: "" });
+    } catch (e) {
+      setStatus({ ok: false, err: e?.message || "Erreur" });
+    }
+  }
+
+  return (
+    <div style={styles.container}>
+      <Card>
+        <h2 style={styles.h2}>Contact</h2>
+        <div style={styles.grid}>
+          <input style={styles.input} placeholder="Nom" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+          <input style={styles.input} placeholder="Email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+          <input style={styles.input} placeholder="Sujet" value={form.subject} onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))} />
+          <textarea style={styles.input} rows={5} placeholder="Message" value={form.message} onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))} />
+          <button style={{ ...styles.btn, ...styles.btnCta }} onClick={send}>Envoyer</button>
+          {status.ok && <div style={styles.ok}>Message envoyé ✅</div>}
+          {status.err && <div style={styles.err}>Erreur: {status.err}</div>}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function LoginPage({ onLogged }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [err, setErr] = useState("");
+
+  async function submit() {
+    setErr("");
+    try {
+      const r = await api.login(email, password);
+      setToken(r.token);
+      onLogged(r.user);
+      setHashPath(r.user.role === "admin" ? "/admin" : "/member");
+    } catch (e) {
+      setErr(e?.message || "Identifiants incorrects");
+    }
+  }
+
+  return (
+    <div style={styles.container}>
+      <Card>
+        <h2 style={styles.h2}>Connexion</h2>
+        <div style={styles.grid}>
+          <input style={styles.input} placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input style={styles.input} type="password" placeholder="Mot de passe" value={password} onChange={(e) => setPassword(e.target.value)} />
+          {err && <div style={styles.err}>Erreur: {err}</div>}
+          <button style={{ ...styles.btn, ...styles.btnCta }} onClick={submit}>Se connecter</button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function formatEurosFromCents(cents) {
+  const n = typeof cents === "number" ? cents : 0;
+  return (n / 100).toFixed(2).replace(".", ",") + " €";
+}
+
+function MemberPage({ user }) {
+  const [events, setEvents] = useState([]);
+  const [att, setAtt] = useState([]);
+  const map = useMemo(() => Object.fromEntries((Array.isArray(att) ? att : []).map((a) => [a.eventId, a])), [att]);
+  const [msg, setMsg] = useState("");
+
+  const [feeCents, setFeeCents] = useState(null);
+
+  async function refresh() {
+    setMsg("");
+    try {
+      const ev = await api.events();
+      const at = await api.myAttendance();
+      setEvents(Array.isArray(ev) ? ev : []);
+      setAtt(Array.isArray(at) ? at : []);
+    } catch (e) {
+      setMsg(e?.message || "Erreur");
+    }
+  }
+
+  async function loadFee() {
+    try {
+      // endpoint admin/settings est souvent protégé admin, donc on ignore l'erreur si 403
+      if (typeof api.adminGetSettings === "function") {
+        const s = await api.adminGetSettings();
+        if (typeof s?.membershipFeeCents === "number") setFeeCents(s.membershipFeeCents);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    loadFee();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function setStatus(eventId, status) {
+    try {
+      await api.setAttendance({ eventId, status, comment: "" });
+      const at = await api.myAttendance();
+      setAtt(Array.isArray(at) ? at : []);
+    } catch (e) {
+      setMsg(e?.message || "Erreur");
+    }
+  }
+
+  async function pay() {
+    setMsg("");
+    if (typeof api.createCheckoutSession !== "function") {
+      setMsg("Paiement non configuré (api.createCheckoutSession manquant).");
+      return;
+    }
+    try {
+      const r = await api.createCheckoutSession();
+      if (r?.url) window.location.href = r.url;
+      else setMsg("Session de paiement invalide.");
+    } catch (e) {
+      setMsg(e?.message || "Erreur paiement");
+    }
+  }
+
+  return (
+    <div style={styles.container}>
+      <Card>
+        <h2 style={styles.h2}>Espace membre</h2>
+        <p style={styles.small}>Bonjour <b>{user?.name || "membre"}</b>.</p>
+
+        <div style={styles.row}>
+          <button style={styles.btn} onClick={refresh}>Rafraîchir</button>
+          <button style={{ ...styles.btn, ...styles.btnCta }} onClick={pay}>Payer la cotisation</button>
+        </div>
+
+        <div style={{ marginTop: 8 }}>
+          {feeCents != null ? (
+            <div style={styles.small}>Cotisation actuelle : <b>{formatEurosFromCents(feeCents)}</b> / mois</div>
+          ) : (
+            <div style={styles.small}>Cotisation : montant défini par l’association.</div>
+          )}
+        </div>
+
+        {msg && <div style={styles.err}>Info: {msg}</div>}
+      </Card>
+
+      <Card>
+        <h3 style={styles.h3}>Calendrier & présences</h3>
+        {events.length === 0 ? <p style={styles.small}>Aucun événement.</p> : null}
+        <div style={styles.grid}>
+          {(Array.isArray(events) ? events : []).map((e) => (
+            <Card key={e.id}>
+              <div style={{ fontWeight: 900 }}>{e.title || "Événement"}</div>
+              <div style={styles.small}>
+                {e.startAt ? new Date(e.startAt).toLocaleString() : "Date à définir"} • {e.place || "—"} • {e.type || "—"}
+              </div>
+              {e.notes ? <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>{e.notes}</div> : null}
+              <div style={styles.small}>Statut: <b>{map[e.id]?.status || "—"}</b></div>
+              <div style={{ ...styles.row, marginTop: 10 }}>
+                <button style={{ ...styles.btn, ...styles.btnTurq }} onClick={() => setStatus(e.id, "present")}>Présent</button>
+                <button style={styles.btn} onClick={() => setStatus(e.id, "incertain")}>Incertain</button>
+                <button style={styles.btn} onClick={() => setStatus(e.id, "absent")}>Absent</button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function toDatetimeLocal(isoString) {
+  if (!isoString) return "";
+  const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function AdminPage() {
+  const [stats, setStats] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [messages, setMessages] = useState([]);
+
+  const [about, setAbout] = useState("");
+  const [pdf, setPdf] = useState("");
+
+  const [newUser, setNewUser] = useState({ name: "", email: "", password: "", role: "member" });
+  const [evt, setEvt] = useState({ type: "repetition", title: "Répétition", startAt: "", place: "", notes: "", isPublic: false });
+
+  const [allEvents, setAllEvents] = useState([]);
+  const [edit, setEdit] = useState({});
+  const [busy, setBusy] = useState("");
+
+  const [feeEuros, setFeeEuros] = useState("20");
+  const [feeLoaded, setFeeLoaded] = useState(false);
+
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState("");
+
+  const canUpdateDelete =
+    typeof api.adminUpdateEvent === "function" && typeof api.adminDeleteEvent === "function";
+  const canSettings =
+    typeof api.adminGetSettings === "function" && typeof api.adminUpdateSettings === "function";
+
+  useEffect(() => {
+    const dt = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const local = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+    setEvt((e) => ({ ...e, startAt: local }));
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function refresh() {
+    setErr("");
+    setOk("");
+    try {
+      const s = await api.adminStats();
+      const u = await api.adminUsers();
+      const m = await api.adminMessages();
+      const c = await api.publicContent();
+      const ev = await api.events();
+
+      setStats(s || null);
+      setUsers(Array.isArray(u) ? u : []);
+      setMessages(Array.isArray(m) ? m : []);
+      setAllEvents(Array.isArray(ev) ? ev : []);
+      setAbout(typeof c?.about === "string" ? c.about : "");
+      setPdf(typeof c?.portfolioPdfUrl === "string" ? c.portfolioPdfUrl : "");
+
+      const current = Array.isArray(ev) ? ev : [];
+      setEdit((prev) => {
+        const next = { ...prev };
+        for (const e of current) {
+          if (!next[e.id]) {
+            next[e.id] = {
+              type: e.type || "repetition",
+              title: e.title || "",
+              startAtLocal: toDatetimeLocal(e.startAt) || "",
+              place: e.place || "",
+              notes: e.notes || "",
+              isPublic: !!e.isPublic,
+            };
+          }
+        }
+        return next;
+      });
+
+      if (canSettings) {
+        const st = await api.adminGetSettings();
+        if (typeof st?.membershipFeeCents === "number") {
+          setFeeEuros(String((st.membershipFeeCents / 100).toFixed(2)));
+        }
+        setFeeLoaded(true);
+      }
+    } catch (e) {
+      setErr(e?.message || "Erreur");
+    }
+  }
+
+  async function savePublic() {
+    setErr("");
+    setOk("");
+    try {
+      await api.adminPublicContent({ about, portfolioPdfUrl: pdf });
+      setOk("Contenu public enregistré ✅");
+      await refresh();
+    } catch (e) {
+      setErr(e?.message || "Erreur");
+    }
+  }
+
+  async function createUser() {
+    setErr("");
+    setOk("");
+    try {
+      await api.adminCreateUser(newUser);
+      setNewUser({ name: "", email: "", password: "", role: "member" });
+      setOk("Utilisateur créé ✅");
+      await refresh();
+    } catch (e) {
+      setErr(e?.message || "Erreur");
+    }
+  }
+
+  async function createEvent() {
+    setErr("");
+    setOk("");
+    try {
+      const iso = evt.startAt ? new Date(evt.startAt).toISOString() : new Date().toISOString();
+      await api.adminCreateEvent({ ...evt, startAt: iso });
+      setOk("Événement ajouté ✅");
+      await refresh();
+    } catch (e) {
+      setErr(e?.message || "Erreur");
+    }
+  }
+
+  async function updateExistingEvent(id) {
+    setErr("");
+    setOk("");
+    if (!canUpdateDelete) {
+      setErr("Fonctions manquantes: adminUpdateEvent/adminDeleteEvent dans api.js");
+      return;
+    }
+    setBusy(`save:${id}`);
+    try {
+      const data = edit[id] || {};
+      const payload = {
+        type: data.type,
+        title: data.title,
+        place: data.place,
+        notes: data.notes,
+        isPublic: !!data.isPublic,
+      };
+      if (data.startAtLocal) payload.startAt = new Date(data.startAtLocal).toISOString();
+      await api.adminUpdateEvent(id, payload);
+      setOk("Événement mis à jour ✅");
+      await refresh();
+    } catch (e) {
+      setErr(e?.message || "Erreur (update)");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function deleteExistingEvent(id) {
+    setErr("");
+    setOk("");
+    if (!canUpdateDelete) {
+      setErr("Fonctions manquantes: adminUpdateEvent/adminDeleteEvent dans api.js");
+      return;
+    }
+    const confirm = window.confirm("Supprimer cet événement ? (annulation)");
+    if (!confirm) return;
+    setBusy(`del:${id}`);
+    try {
+      await api.adminDeleteEvent(id);
+      setOk("Événement supprimé ✅");
+      await refresh();
+    } catch (e) {
+      setErr(e?.message || "Erreur (delete)");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function saveFee() {
+    setErr("");
+    setOk("");
+    if (!canSettings) {
+      setErr("Fonctions manquantes: adminGetSettings/adminUpdateSettings dans api.js");
+      return;
+    }
+    const normalized = String(feeEuros || "").replace(",", ".").trim();
+    const euros = Number(normalized);
+    if (!Number.isFinite(euros) || euros < 0) {
+      setErr("Montant invalide. Exemple: 20 ou 20,00");
+      return;
+    }
+    const cents = Math.round(euros * 100);
+    try {
+      await api.adminUpdateSettings({ membershipFeeCents: cents });
+      setOk("Cotisation mise à jour ✅");
+      await refresh();
+    } catch (e) {
+      setErr(e?.message || "Erreur (cotisation)");
+    }
+  }
+
+  const sortedEvents = useMemo(() => {
+    const list = Array.isArray(allEvents) ? [...allEvents] : [];
+    list.sort((a, b) => {
+      const ta = a.startAt ? new Date(a.startAt).getTime() : 0;
+      const tb = b.startAt ? new Date(b.startAt).getTime() : 0;
+      return tb - ta;
+    });
+    return list;
+  }, [allEvents]);
+
+  return (
+    <div style={styles.container}>
+      <Card>
+        <h2 style={styles.h2}>Gestion (Admins)</h2>
+        <div style={styles.row}>
+          <span style={styles.badge}>Admins: {stats?.totalAdmins ?? "—"}</span>
+          <span style={styles.badge}>Membres: {stats?.totalMembers ?? "—"}</span>
+          <span style={styles.badge}>Événements: {stats?.totalEvents ?? "—"}</span>
+        </div>
+
+        {err && <div style={styles.err}>Erreur: {err}</div>}
+        {ok && <div style={styles.ok}>{ok}</div>}
+
+        <div style={{ ...styles.row, marginTop: 10 }}>
+          <button style={styles.btn} onClick={refresh}>Rafraîchir</button>
+        </div>
+      </Card>
+
+      <Card>
+        <h3 style={styles.h3}>Cotisation (V1.1)</h3>
+        {!canSettings ? (
+          <div style={styles.warn}>
+            Ajoute dans <code>frontend/src/api.js</code> : <code>adminGetSettings</code> et <code>adminUpdateSettings</code>.
+          </div>
+        ) : null}
+
+        <div style={{ ...styles.grid, marginTop: 10 }}>
+          <label style={styles.small}>Montant mensuel (€)</label>
+          <input
+            style={styles.input}
+            value={feeEuros}
+            onChange={(e) => setFeeEuros(e.target.value)}
+            placeholder="20"
+          />
+          <button style={{ ...styles.btn, ...styles.btnCta }} onClick={saveFee}>
+            Enregistrer la cotisation
+          </button>
+          {feeLoaded ? <div style={styles.small}>Montant actuel: <b>{feeEuros.replace(".", ",")} €</b></div> : null}
+        </div>
+      </Card>
+
+      <div style={styles.grid2}>
+        <Card>
+          <h3 style={styles.h3}>Contenu public</h3>
+          <div style={styles.grid}>
+            <label style={styles.small}>À propos</label>
+            <textarea style={styles.input} rows={4} value={about} onChange={(e) => setAbout(e.target.value)} />
+            <label style={styles.small}>URL PDF portfolio</label>
+            <input style={styles.input} value={pdf} onChange={(e) => setPdf(e.target.value)} />
+            <button style={{ ...styles.btn, ...styles.btnCta }} onClick={savePublic}>Enregistrer</button>
+          </div>
+        </Card>
+
+        <Card>
+          <h3 style={styles.h3}>Créer un membre / admin</h3>
+          <div style={styles.grid}>
+            <input style={styles.input} placeholder="Nom" value={newUser.name} onChange={(e) => setNewUser((u) => ({ ...u, name: e.target.value }))} />
+            <input style={styles.input} placeholder="Email" value={newUser.email} onChange={(e) => setNewUser((u) => ({ ...u, email: e.target.value }))} />
+            <input style={styles.input} type="password" placeholder="Mot de passe (min 6)" value={newUser.password} onChange={(e) => setNewUser((u) => ({ ...u, password: e.target.value }))} />
+            <select style={styles.input} value={newUser.role} onChange={(e) => setNewUser((u) => ({ ...u, role: e.target.value }))}>
+              <option value="member">member</option>
+              <option value="admin">admin</option>
+            </select>
+            <button style={{ ...styles.btn, ...styles.btnTurq }} onClick={createUser}>Créer</button>
+          </div>
+
+          <hr style={styles.hr} />
+          <h4 style={{ margin: "0 0 8px" }}>Utilisateurs</h4>
+          <div style={styles.grid}>
+            {(Array.isArray(users) ? users : []).map((u) => (
+              <Card key={u.id}>
+                <div style={{ fontWeight: 900 }}>
+                  {u.name} <span style={styles.small}>({u.role})</span>
+                </div>
+                <div style={styles.small}>{u.email}</div>
+              </Card>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <div style={styles.grid2}>
+        <Card>
+          <h3 style={styles.h3}>Ajouter un événement (nouveau)</h3>
+          <div style={styles.grid}>
+            <select style={styles.input} value={evt.type} onChange={(e) => setEvt((v) => ({ ...v, type: e.target.value }))}>
+              <option value="repetition">repetition</option>
+              <option value="concert">concert</option>
+              <option value="autre">autre</option>
+            </select>
+            <input style={styles.input} placeholder="Titre" value={evt.title} onChange={(e) => setEvt((v) => ({ ...v, title: e.target.value }))} />
+            <input style={styles.input} type="datetime-local" value={evt.startAt} onChange={(e) => setEvt((v) => ({ ...v, startAt: e.target.value }))} />
+            <input style={styles.input} placeholder="Lieu" value={evt.place} onChange={(e) => setEvt((v) => ({ ...v, place: e.target.value }))} />
+            <textarea style={styles.input} rows={3} placeholder="Notes" value={evt.notes} onChange={(e) => setEvt((v) => ({ ...v, notes: e.target.value }))} />
+            <label style={styles.small}>
+              <input type="checkbox" checked={!!evt.isPublic} onChange={(e) => setEvt((v) => ({ ...v, isPublic: e.target.checked }))} /> Public (concert visible invités)
+            </label>
+            <button style={{ ...styles.btn, ...styles.btnCta }} onClick={createEvent}>Ajouter</button>
+          </div>
+        </Card>
+
+        <Card>
+          <h3 style={styles.h3}>Messages (contact)</h3>
+          {(Array.isArray(messages) ? messages : []).length === 0 ? <p style={styles.small}>Aucun message.</p> : null}
+          <div style={styles.grid}>
+            {(Array.isArray(messages) ? messages : []).map((m) => (
+              <Card key={m.id}>
+                <div style={{ fontWeight: 900 }}>{m.subject || "(sans sujet)"}</div>
+                <div style={styles.small}>
+                  {m.name} • {m.email} • {m.createdAt ? new Date(m.createdAt).toLocaleString() : ""}
+                </div>
+                <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>{m.message}</div>
+              </Card>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <Card>
+        <h3 style={styles.h3}>Événements existants (modifier / supprimer)</h3>
+        {!canUpdateDelete ? (
+          <div style={styles.warn}>
+            Ajoute dans <code>frontend/src/api.js</code> : <code>adminUpdateEvent</code> et <code>adminDeleteEvent</code>.
+          </div>
+        ) : null}
+
+        {sortedEvents.length === 0 ? <p style={styles.small}>Aucun événement.</p> : null}
+
+        <div style={styles.grid}>
+          {sortedEvents.map((e) => {
+            const ed = edit[e.id] || {
+              type: e.type || "repetition",
+              title: e.title || "",
+              startAtLocal: toDatetimeLocal(e.startAt) || "",
+              place: e.place || "",
+              notes: e.notes || "",
+              isPublic: !!e.isPublic,
+            };
+
+            return (
+              <div key={e.id} style={{ ...styles.card, borderStyle: "dashed" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ fontWeight: 900 }}>{e.title || "Événement"}</div>
+                    <div style={styles.small}>
+                      {e.startAt ? new Date(e.startAt).toLocaleString() : "Date à définir"} • {e.place || "—"} • {e.type || "—"}
+                      {e.isPublic ? " • public" : ""}
+                    </div>
+                  </div>
+                  <div style={styles.row}>
+                    <button
+                      style={{ ...styles.btn, ...styles.btnTurq }}
+                      disabled={busy === `save:${e.id}`}
+                      onClick={() => updateExistingEvent(e.id)}
+                    >
+                      {busy === `save:${e.id}` ? "Enregistrement…" : "Enregistrer"}
+                    </button>
+                    <button
+                      style={styles.btnDanger}
+                      disabled={busy === `del:${e.id}`}
+                      onClick={() => deleteExistingEvent(e.id)}
+                    >
+                      {busy === `del:${e.id}` ? "Suppression…" : "Supprimer"}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ ...styles.grid, marginTop: 12 }}>
+                  <div style={styles.grid2}>
+                    <div>
+                      <label style={styles.small}>Type</label>
+                      <select
+                        style={styles.input}
+                        value={ed.type}
+                        onChange={(ev) => setEdit((prev) => ({ ...prev, [e.id]: { ...ed, type: ev.target.value } }))}
+                      >
+                        <option value="repetition">repetition</option>
+                        <option value="concert">concert</option>
+                        <option value="autre">autre</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={styles.small}>Public (invités)</label>
+                      <label style={styles.small}>
+                        <input
+                          type="checkbox"
+                          checked={!!ed.isPublic}
+                          onChange={(ev) => setEdit((prev) => ({ ...prev, [e.id]: { ...ed, isPublic: ev.target.checked } }))}
+                        />{" "}
+                        Oui
+                      </label>
+                    </div>
+                  </div>
+
+                  <div style={styles.grid2}>
+                    <div>
+                      <label style={styles.small}>Titre</label>
+                      <input
+                        style={styles.input}
+                        value={ed.title}
+                        onChange={(ev) => setEdit((prev) => ({ ...prev, [e.id]: { ...ed, title: ev.target.value } }))}
+                      />
+                    </div>
+                    <div>
+                      <label style={styles.small}>Date & heure</label>
+                      <input
+                        style={styles.input}
+                        type="datetime-local"
+                        value={ed.startAtLocal}
+                        onChange={(ev) => setEdit((prev) => ({ ...prev, [e.id]: { ...ed, startAtLocal: ev.target.value } }))}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={styles.small}>Lieu</label>
+                    <input
+                      style={styles.input}
+                      value={ed.place}
+                      onChange={(ev) => setEdit((prev) => ({ ...prev, [e.id]: { ...ed, place: ev.target.value } }))}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={styles.small}>Notes</label>
+                    <textarea
+                      style={styles.input}
+                      rows={3}
+                      value={ed.notes}
+                      onChange={(ev) => setEdit((prev) => ({ ...prev, [e.id]: { ...ed, notes: ev.target.value } }))}
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function PaymentStatus({ ok }) {
+  return (
+    <div style={styles.container}>
+      <Card>
+        <h2 style={styles.h2}>{ok ? "Paiement réussi ✅" : "Paiement annulé"}</h2>
+        <p style={styles.small}>Tu peux revenir à l’espace membre.</p>
+        <button style={styles.btn} onClick={() => setHashPath("/member")}>Aller à l’espace membre</button>
+      </Card>
+    </div>
+  );
+}
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [path, setPath] = useState(getHashPath());
+
+  useEffect(() => {
+    const onHash = () => setPath(getHashPath());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  useEffect(() => {
+    if (getToken()) {
+      api.me()
+        .then(setUser)
+        .catch(() => {
+          logout();
+          setUser(null);
+        });
+    }
+  }, []);
+
+  let page = null;
+  if (path === "/" || path === "") page = <PublicHome />;
+  else if (path === "/concerts") page = <ConcertsPage />;
+  else if (path === "/portfolio") page = <PortfolioPage />;
+  else if (path === "/contact") page = <ContactPage />;
+  else if (path === "/login") page = <LoginPage onLogged={setUser} />;
+  else if (path === "/member") page = user ? <MemberPage user={user} /> : <LoginPage onLogged={setUser} />;
+  else if (path === "/admin") page = user?.role === "admin" ? <AdminPage /> : <LoginPage onLogged={setUser} />;
+  else if (path === "/paiement/success") page = <PaymentStatus ok />;
+  else if (path === "/paiement/cancel") page = <PaymentStatus ok={false} />;
+  else page = <PublicHome />;
+
+  return (
+    <>
+      <Nav user={user} />
+      {page}
+    </>
+  );
+}
+
+const palette = {
+  // Pastel "flamme" — crème, pêche, rose, corail doux, lavande chaude
+  bg: "#FFF7F1",        // crème chaude
+  night: "#2B1B2B",     // prune très foncé (lisible)
+  turq: "#FFB7A1",      // pêche rosée
+  gold: "#F2C14E",      // or doux (CTA)
+  coral: "#FF7A6B",     // corail (accent)
+  blush: "#FFC6D0",     // rose poudré
+  lavender: "#E7D7FF",  // lavande pastel
+  border: "rgba(43,27,43,0.14)",
+  muted: "#6B5A66",
+};
+
+const styles = {
+  nav: {
+    position: "sticky",
+    top: 0,
+    padding: "12px 16px",
+    background: "linear-gradient(90deg, rgba(11,19,43,0.96), rgba(43,27,43,0.94))",
+    backdropFilter: "blur(10px)",
+    boxShadow: "0 14px 40px rgba(43,27,43,0.25)",
+    borderBottom: "1px solid rgba(242,193,78,0.25)",
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "center",
+    flexWrap: "wrap",
+    zIndex: 10,
+  },
+  brand: { display: "flex", gap: 10, alignItems: "center", cursor: "pointer", color: "#FFF7F1" },
+  badge: { fontSize: 12, padding: "4px 8px", borderRadius: 999, border: "1px solid rgba(242,193,78,0.35)", color: "rgba(255,247,241,0.78)" },
+  container: { maxWidth: 980, margin: "0 auto", padding: 16, background: "linear-gradient(180deg, #FFF7F1 0%, #FFE7DC 35%, #FFD7E3 70%, #EDE1FF 100%)", borderRadius: 18 },
+  card: { background: "linear-gradient(135deg, rgba(255,247,241,0.86), rgba(255,231,220,0.72), rgba(255,215,227,0.66), rgba(237,225,255,0.62))", border: `1px solid ${palette.border}`, borderRadius: 16, padding: 14 },
+  grid: { display: "grid", gap: 12 },
+  grid2: { display: "grid", gap: 12, gridTemplateColumns: "1fr" },
+  row: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" },
+  btn: { border: "1px solid rgba(242,193,78,0.35)", background: "rgba(255,255,255,0.82)", color: palette.night, padding: "10px 12px", borderRadius: 12, cursor: "pointer", fontWeight: 650 },
+  btnNav: { border: "1px solid rgba(255,247,241,0.18)", background: "rgba(255,255,255,0.06)", color: "rgba(255,247,241,0.92)", padding: "10px 12px", borderRadius: 12, cursor: "pointer", fontWeight: 650 },
+  btnPrimary: { background: palette.night, color: "#fff", borderColor: palette.night, boxShadow: "0 10px 25px rgba(43,27,43,0.18)" },
+  btnTurq: { background: palette.turq, color: "#2B1B2B", borderColor: "rgba(255,183,161,0.85)" },
+  btnCta: { background: "linear-gradient(90deg, #F2C14E, #FF9A7E, #FF7A6B)", color: "#2B1B2B", borderColor: "rgba(242,193,78,0.75)", boxShadow: "0 10px 24px rgba(255,122,107,0.25)" },
+  btnDanger: { border: "1px solid rgba(185,28,28,0.35)", background: "#fff", color: "#B23A48", padding: "10px 12px", borderRadius: 12, cursor: "pointer", fontWeight: 750 },
+  btnLink: { display: "inline-block", textDecoration: "none", textAlign: "center", padding: "10px 12px", borderRadius: 12, cursor: "pointer", fontWeight: 650, border: "1px solid rgba(242,193,78,0.35)" },
+  input: { width: "100%", padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(242,193,78,0.22)", background: "rgba(255,255,255,0.88)", color: palette.night },
+  small: { fontSize: 12.5, color: palette.muted },
+  h2: { marginTop: 0, marginBottom: 8 },
+  h3: { marginTop: 0, marginBottom: 8 },
+  hr: { border: 0, borderTop: `1px solid ${palette.border}`, margin: "14px 0" },
+  err: { fontSize: 13, color: "#B23A48", marginTop: 8, whiteSpace: "pre-wrap" },
+  ok: { fontSize: 13, color: "#2E6F5E", marginTop: 8, whiteSpace: "pre-wrap" },
+  warn: { fontSize: 13, color: "#7c2d12", background: "rgba(255,231,220,0.75)", border: "1px solid rgba(255,154,126,0.45)", padding: 10, borderRadius: 12 },
+};
+
+if (typeof window !== "undefined") {
+  const mq = window.matchMedia("(min-width: 840px)");
+  const apply = () => { styles.grid2.gridTemplateColumns = mq.matches ? "1fr 1fr" : "1fr"; };
+  apply();
+  mq.addEventListener?.("change", apply);
+}
