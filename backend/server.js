@@ -173,6 +173,102 @@ app.post("/api/member/checkout", auth, async (req, res) => {
 });
 
 // -------------------------------
+// ADMIN DATA (V1.1+) — placeholders en mémoire
+// -------------------------------
+let ADMIN_MEMBERS = []; // { id, name, email }
+let ADMIN_EVENTS = [];  // { id, type: "repetition"|"concert", title, date, note }
+
+// Petit helper id
+function uid(prefix = "id") {
+  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now()}`;
+}
+
+// -------------------------------
+// ADMIN — Membres
+// -------------------------------
+app.get("/api/admin/members", auth, requireAdmin, (req, res) => {
+  res.json({ members: ADMIN_MEMBERS });
+});
+
+app.post("/api/admin/members", auth, requireAdmin, (req, res) => {
+  const { name, email } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name required" });
+  const m = { id: uid("m"), name, email: email || "" };
+  ADMIN_MEMBERS.unshift(m);
+  res.json({ ok: true, member: m });
+});
+
+app.delete("/api/admin/members/:id", auth, requireAdmin, (req, res) => {
+  const before = ADMIN_MEMBERS.length;
+  ADMIN_MEMBERS = ADMIN_MEMBERS.filter((m) => m.id !== req.params.id);
+  res.json({ ok: true, removed: before !== ADMIN_MEMBERS.length });
+});
+
+// -------------------------------
+// ADMIN — Événements (répétitions / concerts)
+// -------------------------------
+app.get("/api/admin/events", auth, requireAdmin, (req, res) => {
+  res.json({ events: ADMIN_EVENTS });
+});
+
+app.post("/api/admin/events", auth, requireAdmin, (req, res) => {
+  const { type, title, date, note } = req.body || {};
+  if (!type || !date) return res.status(400).json({ error: "type and date required" });
+
+  const ev = {
+    id: uid("e"),
+    type: type === "concert" ? "concert" : "repetition",
+    title: title || (type === "concert" ? "Concert" : "Répétition"),
+    date,
+    note: note || "",
+  };
+
+  ADMIN_EVENTS.unshift(ev);
+  res.json({ ok: true, event: ev });
+});
+
+app.patch("/api/admin/events/:id", auth, requireAdmin, (req, res) => {
+  const { title, date, note, type } = req.body || {};
+  const idx = ADMIN_EVENTS.findIndex((e) => e.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: "Event not found" });
+
+  ADMIN_EVENTS[idx] = {
+    ...ADMIN_EVENTS[idx],
+    ...(title !== undefined ? { title } : {}),
+    ...(date !== undefined ? { date } : {}),
+    ...(note !== undefined ? { note } : {}),
+    ...(type !== undefined ? { type: type === "concert" ? "concert" : "repetition" } : {}),
+  };
+
+  res.json({ ok: true, event: ADMIN_EVENTS[idx] });
+});
+
+app.delete("/api/admin/events/:id", auth, requireAdmin, (req, res) => {
+  const before = ADMIN_EVENTS.length;
+  ADMIN_EVENTS = ADMIN_EVENTS.filter((e) => e.id !== req.params.id);
+  res.json({ ok: true, removed: before !== ADMIN_EVENTS.length });
+});
+
+// -------------------------------
+// ADMIN — “Stats / choristes” (pour éviter les 404 si l’UI appelle ça)
+// -------------------------------
+app.get("/api/admin/stats", auth, requireAdmin, (req, res) => {
+  res.json({
+    stats: {
+      membersCount: ADMIN_MEMBERS.length,
+      eventsCount: ADMIN_EVENTS.length,
+      repeatsCount: ADMIN_EVENTS.filter((e) => e.type === "repetition").length,
+      concertsCount: ADMIN_EVENTS.filter((e) => e.type === "concert").length,
+    },
+  });
+});
+
+app.get("/api/admin/choristes", auth, requireAdmin, (req, res) => {
+  // Si ton UI a un onglet “Choristes”, on renvoie une liste vide pour l’instant
+  res.json({ choristes: [] });
+});
+
+// -------------------------------
 // START
 // -------------------------------
 app.listen(PORT, () => {
