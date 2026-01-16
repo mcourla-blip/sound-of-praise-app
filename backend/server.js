@@ -243,7 +243,8 @@ async function sendBrevo(to, subject, html) {
 // CRON — GET OK (cron-job.org)
 // ---------------------------------------
 app.all("/api/admin/reminders/run", async (req, res) => {
-  if (req.query.secret !== CRON_SECRET)
+  const secret = req.query.secret ? String(req.query.secret) : "";
+  if (!CRON_SECRET || secret !== CRON_SECRET) {
     return res.status(401).json({ error: "Unauthorized" });
 
   const today = ymd(new Date());
